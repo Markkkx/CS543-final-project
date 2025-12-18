@@ -1,3 +1,5 @@
 opencv-python==4.10.0.84
 largestinteriorrectangle
 requests
+PyMaxflow>=1.2.13  # For GraphCut seam solver
+numba>=0.56.0  # For JIT-compiled seam solver (10x+ faster than OpenCV)

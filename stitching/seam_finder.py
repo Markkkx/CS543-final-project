@@ -1,5 +1,6 @@
 import warnings
 from collections import OrderedDict
+from typing import List, Tuple, Optional, Union
 
 import cv2 as cv
 import numpy as np
@@ -9,30 +10,90 @@ from .stitching_error import StitchingWarning
 
 
 class SeamFinder:
-    """https://docs.opencv.org/4.x/d7/d09/classcv_1_1detail_1_1SeamFinder.html"""
+    """
+    https://docs.opencv.org/4.x/d7/d09/classcv_1_1detail_1_1SeamFinder.html
+    """
 
+    # OpenCV built-in seam finders
+    OPENCV_SEAM_FINDER_CHOICES = OrderedDict()
+    OPENCV_SEAM_FINDER_CHOICES["dp_color"] = lambda: cv.detail_DpSeamFinder("COLOR")
+    OPENCV_SEAM_FINDER_CHOICES["dp_colorgrad"] = lambda: cv.detail_DpSeamFinder("COLOR_GRAD")
+    OPENCV_SEAM_FINDER_CHOICES["gc_color"] = lambda: cv.detail_GraphCutSeamFinder("COST_COLOR")
+    OPENCV_SEAM_FINDER_CHOICES["gc_colorgrad"] = lambda: cv.detail_GraphCutSeamFinder("COST_COLOR_GRAD")
+    OPENCV_SEAM_FINDER_CHOICES["voronoi"] = lambda: cv.detail.SeamFinder_createDefault(cv.detail.SeamFinder_VORONOI_SEAM)
+    OPENCV_SEAM_FINDER_CHOICES["no"] = lambda: cv.detail.SeamFinder_createDefault(cv.detail.SeamFinder_NO)
+
+    # Custom seam finder choices (lazy loaded)
+    CUSTOM_SEAM_FINDER_CHOICES = OrderedDict()
+    CUSTOM_SEAM_FINDER_CHOICES["custom_dp_color"] = ("DPSeamSolver", "color")
+    CUSTOM_SEAM_FINDER_CHOICES["custom_dp_colorgrad"] = ("DPSeamSolver", "color_grad")
+    CUSTOM_SEAM_FINDER_CHOICES["custom_gc_color"] = ("GraphCutSeamSolver", "color")
+    CUSTOM_SEAM_FINDER_CHOICES["custom_gc_colorgrad"] = ("GraphCutSeamSolver", "color_grad")
+    CUSTOM_SEAM_FINDER_CHOICES["optimized_dp_color"] = ("OptimizedDPSeamSolver", "color")
+    CUSTOM_SEAM_FINDER_CHOICES["optimized_dp_colorgrad"] = ("OptimizedDPSeamSolver", "color_grad")
+    CUSTOM_SEAM_FINDER_CHOICES["optimized_gc_color"] = ("OptimizedGraphCutSeamSolver", "color")
+    CUSTOM_SEAM_FINDER_CHOICES["optimized_gc_colorgrad"] = ("OptimizedGraphCutSeamSolver", "color_grad")
+    CUSTOM_SEAM_FINDER_CHOICES["numba_dp_color"] = ("NumbaAcceleratedDPSolver", "color")
+    CUSTOM_SEAM_FINDER_CHOICES["numba_dp_colorgrad"] = ("NumbaAcceleratedDPSolver", "color_grad")
+
+    # Combined choices for validation
     SEAM_FINDER_CHOICES = OrderedDict()
-    SEAM_FINDER_CHOICES["dp_color"] = cv.detail_DpSeamFinder("COLOR")
-    SEAM_FINDER_CHOICES["dp_colorgrad"] = cv.detail_DpSeamFinder("COLOR_GRAD")
-    SEAM_FINDER_CHOICES["gc_color"] = cv.detail_GraphCutSeamFinder("COST_COLOR")
-    SEAM_FINDER_CHOICES["gc_colorgrad"] = cv.detail_GraphCutSeamFinder(
-        "COST_COLOR_GRAD"
-    )
-    SEAM_FINDER_CHOICES["voronoi"] = cv.detail.SeamFinder_createDefault(
-        cv.detail.SeamFinder_VORONOI_SEAM
-    )
-    SEAM_FINDER_CHOICES["no"] = cv.detail.SeamFinder_createDefault(
-        cv.detail.SeamFinder_NO
-    )
+    SEAM_FINDER_CHOICES.update({k: v for k, v in OPENCV_SEAM_FINDER_CHOICES.items()})
+    SEAM_FINDER_CHOICES.update({k: k for k in CUSTOM_SEAM_FINDER_CHOICES.keys()})
 
-    DEFAULT_SEAM_FINDER = list(SEAM_FINDER_CHOICES.keys())[0]
+    DEFAULT_SEAM_FINDER = "dp_color"
 
-    def __init__(self, finder=DEFAULT_SEAM_FINDER):
-        self.finder = SeamFinder.SEAM_FINDER_CHOICES[finder]
+    def __init__(self, finder: str = DEFAULT_SEAM_FINDER):
+        """
+        Initialize seam finder.
 
-    def find(self, imgs, corners, masks):
+        Args:
+            finder: Name of the seam finding algorithm to use
+        """
+        if finder not in self.SEAM_FINDER_CHOICES:
+            raise ValueError(
+                f"Invalid seam finder: {finder}. "
+                f"Available choices: {list(self.SEAM_FINDER_CHOICES.keys())}"
+            )
+
+        self.finder_name = finder
+        self.is_custom = finder in self.CUSTOM_SEAM_FINDER_CHOICES
+
+        if self.is_custom:
+            self.finder = self._create_custom_finder(finder)
+        else:
+            self.finder = self.OPENCV_SEAM_FINDER_CHOICES[finder]()
+
+    def _create_custom_finder(self, finder_name: str):
+        """Create a custom seam finder instance."""
+        from .seam_solver import (
+            DPSeamSolver, GraphCutSeamSolver,
+            OptimizedDPSeamSolver, OptimizedGraphCutSeamSolver,
+            NumbaAcceleratedDPSolver
+        )
+
+        solver_map = {
+            "DPSeamSolver": DPSeamSolver,
+            "GraphCutSeamSolver": GraphCutSeamSolver,
+            "OptimizedDPSeamSolver": OptimizedDPSeamSolver,
+            "OptimizedGraphCutSeamSolver": OptimizedGraphCutSeamSolver,
+            "NumbaAcceleratedDPSolver": NumbaAcceleratedDPSolver,
+        }
+
+        solver_name, cost_type = self.CUSTOM_SEAM_FINDER_CHOICES[finder_name]
+        return solver_map[solver_name](cost_type=cost_type)
+
+    def find(self, imgs: List[np.ndarray], corners: List[Tuple[int, int]],
+             masks: List[np.ndarray]) -> List[np.ndarray]:
+        """
+        Find seams for the given images.
+        """
         imgs_float = [img.astype(np.float32) for img in imgs]
-        return self.finder.find(imgs_float, corners, masks)
+
+        if self.is_custom:
+            return self.finder.find(imgs_float, corners, masks)
+        else:
+            return self.finder.find(imgs_float, corners, masks)
 
     @staticmethod
     def resize(seam_mask, mask):
