@@ -11,7 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RESULT_DIR = PROJECT_ROOT / "result" / "photometric"
 RESULT_DIR.mkdir(parents=True, exist_ok=True)
 
-print("Project root:", PROJECT_ROOT)
+print("Project root:", PROJECT_ROOT )
 print("Result dir:", RESULT_DIR)
 
 def _download_if_needed(url: str, out_path: Path) -> Path:
